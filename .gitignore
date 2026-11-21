@@ -1,0 +1,25 @@
+# Environment and local tools
+.env
+.env.local
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Runtime media and generated artifacts
+storage/*
+!storage/.gitkeep
+test-data/*
+!test-data/.gitkeep
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
