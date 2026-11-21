@@ -17,11 +17,29 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Meeting Transcriber API", version="0.1.0", lifespan=lifespan)
+OPENAPI_TAGS = [
+    {"name": "system", "description": "Service metadata and liveness health checks."},
+    {
+        "name": "meetings",
+        "description": "Upload meetings, inspect metadata, run audio/AI processing stages, and fetch transcripts.",
+    },
+]
+
+app = FastAPI(
+    title="Meeting Transcriber API",
+    description="Modular monolith REST API for uploading meeting videos, processing audio/AI pipelines, and retrieving structured transcripts.",
+    version="0.10.0",
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
+
+ALLOWED_ORIGINS = list(
+    dict.fromkeys([settings.frontend_origin, "http://localhost:3000", "http://127.0.0.1:3000"])
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

@@ -1,40 +1,51 @@
 # Meeting Transcriber
 
-A local, modular-monolith meeting transcription application. Parts 2-3 establish a runnable Next.js dashboard, FastAPI health service, and local SQLite database; they do **not** upload media or run AI transcription.
+A local, modular-monolith meeting transcription application built with Next.js (React, TypeScript, Tailwind CSS), FastAPI, SQLite/SQLAlchemy, FFmpeg, Faster-Whisper, pyannote.audio, and optional WhisperX word alignment.
+
+## Features
+
+1. **Video Upload & Library:** Upload MP4, WebM, and MOV recordings up to 500 MB (`POST /api/meetings/upload`) and view all meetings ordered newest-first (`GET /api/meetings`).
+2. **Background & Stage-by-Stage Processing:** Trigger full asynchronous processing (`POST /api/meetings/{meeting_id}/process`, `202 Accepted`) via FastAPI `BackgroundTasks` or run individual stages (`/extract-audio`, `/transcribe`, `/diarize`, `/align`).
+3. **Audio Extraction:** Converts video audio tracks to 16 kHz mono PCM WAV via FFmpeg (`storage/audio/`).
+4. **Speech-to-Text & Diarization:** Uses Faster-Whisper (`base` CPU/int8 by default) for timestamped transcription and `pyannote.audio` (`pyannote/speaker-diarization-3.1`) for consistent anonymous speaker labels (`Speaker 1`, `Speaker 2`, etc.) matched by greatest timestamp overlap.
+5. **Word Alignment & Fallback:** Optionally aligns word-level timestamps using WhisperX (`transcript_words`), preserving speaker labels and falling back to segment-level timestamps when WhisperX is unavailable or fails.
+6. **Transcript Processing Engine:** Orders dialogue chronologically, cleans stray whitespace and punctuation spacing, merges consecutive same-speaker turns, and formats `HH:MM:SS` timestamps without overwriting raw SQLite records.
+7. **Interactive Video & Transcript Player:** Streams video with HTTP `Range` support (`200 OK` / `206 Partial Content` / `416`) to a native HTML5 `<video>` player paired with clickable segment/word timestamps, live playback highlighting, and automatic transcript scrolling.
 
 ## Prerequisites
 
-- Node.js 20+ and npm
-- Python 3.11+
+- **Python 3.11+**
+- **Node.js 20+** and `npm`
+- **FFmpeg** installed and available on `PATH` (`ffmpeg -version`)
+- **Hugging Face access token** (`PYANNOTE_AUTH_TOKEN`) with accepted model conditions for `pyannote/speaker-diarization-3.1` (required for multi-speaker diarization; without it, background processing preserves single-speaker `Speaker 1` labels)
 
-No FFmpeg or AI-model installation is required at this stage.
+## Environment Configuration
 
-## Database
-
-The backend creates SQLite tables automatically when it starts. By default, the database is stored at `storage/meeting_transcriber.db`; set `DATABASE_URL` to override it. The current schema contains `meetings` and `transcript_segments` only.
-
-Audio extraction is started with `POST /api/meetings/{meeting_id}/extract-audio`. It runs synchronously, requires FFmpeg on `PATH`, writes 16 kHz mono PCM WAV files to `storage/audio/`, and marks the meeting `audio_ready` when successful.
-
-Transcription is started with `POST /api/meetings/{meeting_id}/transcribe`. The meeting must be `audio_ready`. Faster-Whisper loads the configured `base` model only for that request, stores timestamped segments using `Speaker 1`, and marks a successful meeting `completed`.
-
-Speaker diarization is started with `POST /api/meetings/{meeting_id}/diarize` after transcription completes. Create a Hugging Face access token, accept the conditions for the configured `pyannote/speaker-diarization-3.1` model, and set `PYANNOTE_AUTH_TOKEN` in your local environment. Do not commit the token. Pyannote loads only when this endpoint is requested; its results replace default speaker labels by timestamp overlap.
-
-Run the focused database test after installing backend dependencies:
-
-```bash
-cd backend
-../.venv/bin/python -m unittest discover -s tests -v
-```
-
-## Run locally
-
-Create local configuration from the example if you need to change defaults:
+Copy `.env.example` to `.env` in the project root (the backend loads `.env` and `backend/.env` automatically on startup):
 
 ```bash
 cp .env.example .env
 ```
 
-Start the backend in one terminal:
+| Variable | Default | Description |
+|---|---|---|
+| `BACKEND_HOST` | `127.0.0.1` | FastAPI bind host |
+| `BACKEND_PORT` | `8000` | FastAPI bind port |
+| `FRONTEND_ORIGIN` | `http://localhost:3000` | Allowed CORS frontend origin (`localhost:3000` and `127.0.0.1:3000` are both allowed) |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:8000` | Backend base URL used by the Next.js browser client |
+| `DATABASE_URL` | `sqlite:///.../storage/meeting_transcriber.db` | SQLAlchemy database connection URL |
+| `WHISPER_MODEL` | `base` | Faster-Whisper model size/name |
+| `WHISPER_DEVICE` | `cpu` | Faster-Whisper & WhisperX execution device (`cpu` or `cuda`) |
+| `WHISPER_COMPUTE_TYPE` | `int8` | Faster-Whisper compute precision |
+| `WHISPER_LANGUAGE` | `en` | Language code for optional WhisperX word alignment |
+| `PYANNOTE_MODEL` | `pyannote/speaker-diarization-3.1` | Hugging Face pyannote diarization pipeline ID |
+| `PYANNOTE_AUTH_TOKEN` | *(unset)* | Hugging Face access token (never commit real tokens) |
+
+## Install and Run Locally
+
+### 1. Start the Backend (FastAPI)
+
+**macOS / Linux:**
 
 ```bash
 python3 -m venv .venv
@@ -43,16 +54,20 @@ cd backend
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The backend exposes:
+**Windows (PowerShell):**
 
-- `GET http://127.0.0.1:8000/`
-- `GET http://127.0.0.1:8000/health`
-- `POST http://127.0.0.1:8000/api/meetings/upload` (multipart field: `file`)
-- OpenAPI docs at `http://127.0.0.1:8000/docs`
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r backend\requirements.txt
+cd backend
+..\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-Uploads accept MP4, WebM, and MOV files up to 500 MB. They are stored under `storage/uploads/`, and a meeting record is created with status `uploaded`.
+Swagger / OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
 
-Start the frontend in another terminal:
+### 2. Start the Frontend (Next.js)
+
+In a second terminal:
 
 ```bash
 cd frontend
@@ -62,16 +77,49 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Structure
+## Run Tests
+
+Run the backend unit, route, security, background-pipeline, and end-to-end workflow test suites from the project root:
+
+**macOS / Linux:**
+
+```bash
+PYTHONPATH=backend python3 -m unittest \
+  backend/tests/test_end_to_end_workflow.py \
+  backend/tests/test_background_processing.py \
+  backend/tests/test_api_routes.py \
+  backend/tests/test_transcript_service.py \
+  backend/tests/test_alignment_service.py \
+  backend/tests/test_diarization_service.py \
+  backend/tests/test_transcription_service.py \
+  backend/tests/test_media_service.py \
+  backend/tests/test_database.py -v
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:PYTHONPATH="backend"
+python -m unittest `
+  backend/tests/test_end_to_end_workflow.py `
+  backend/tests/test_background_processing.py `
+  backend/tests/test_api_routes.py `
+  backend/tests/test_transcript_service.py `
+  backend/tests/test_alignment_service.py `
+  backend/tests/test_diarization_service.py `
+  backend/tests/test_transcription_service.py `
+  backend/tests/test_media_service.py `
+  backend/tests/test_database.py -v
+```
+
+## Project Structure
 
 ```text
-frontend/        Next.js, React, TypeScript, Tailwind user interface
-backend/         FastAPI service and future API/service modules
-docs/            Architecture and milestone documentation
-storage/         Runtime media/artifact location (ignored by Git)
+frontend/        Next.js App Router dashboard, video player, and interactive transcript UI
+backend/         FastAPI service, SQLite models, media/ASR/diarization/alignment/transcript services, and tests
+docs/            Architecture, API/DB/pipeline specifications, Milestone 2 checklists, and module status
+storage/         Runtime media uploads, extracted WAV audio, and SQLite database (ignored by Git)
 test-data/       Local test fixtures (ignored by Git)
 ```
 
-## Scope status
-
-See [docs/module-status.md](docs/module-status.md) for implemented and planned modules. The architecture and roadmap remain in `docs/`.
+See [docs/module-status.md](docs/module-status.md) for detailed implementation and verification status across all 16 milestones.

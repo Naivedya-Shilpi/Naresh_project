@@ -35,3 +35,18 @@ class TranscriptSegment(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
     meeting: Mapped[Meeting] = relationship(back_populates="transcript_segments")
+    words: Mapped[list["TranscriptWord"]] = relationship(
+        back_populates="segment", cascade="all, delete-orphan", order_by="TranscriptWord.start_time"
+    )
+
+
+class TranscriptWord(Base):
+    __tablename__ = "transcript_words"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    segment_id: Mapped[int] = mapped_column(ForeignKey("transcript_segments.id"), nullable=False, index=True)
+    word: Mapped[str] = mapped_column(String(255), nullable=False)
+    start_time: Mapped[float] = mapped_column(Float, nullable=False)
+    end_time: Mapped[float] = mapped_column(Float, nullable=False)
+
+    segment: Mapped[TranscriptSegment] = relationship(back_populates="words")

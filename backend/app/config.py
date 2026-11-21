@@ -6,7 +6,29 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATABASE_URL = f"sqlite:///{PROJECT_ROOT / 'storage' / 'meeting_transcriber.db'}"
+DEFAULT_DATABASE_URL = f"sqlite:///{(PROJECT_ROOT / 'storage' / 'meeting_transcriber.db').as_posix()}"
+
+
+def _load_dotenv_files() -> None:
+    """Populate os.environ from optional local .env files without overriding shell variables."""
+    for env_path in (PROJECT_ROOT / ".env", PROJECT_ROOT / "backend" / ".env"):
+        if not env_path.is_file():
+            continue
+        try:
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip("'\"")
+                if key:
+                    os.environ.setdefault(key, value)
+        except OSError:
+            continue
+
+
+_load_dotenv_files()
 
 
 @dataclass(frozen=True)
@@ -16,6 +38,7 @@ class Settings:
     whisper_model: str = os.getenv("WHISPER_MODEL", "base")
     whisper_device: str = os.getenv("WHISPER_DEVICE", "cpu")
     whisper_compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+    whisper_language: str = os.getenv("WHISPER_LANGUAGE", "en")
     pyannote_model: str = os.getenv("PYANNOTE_MODEL", "pyannote/speaker-diarization-3.1")
     pyannote_auth_token: str | None = os.getenv("PYANNOTE_AUTH_TOKEN") or None
 

@@ -47,6 +47,10 @@ def diarize_audio(audio_path: Path) -> list[SpeakerTurn]:
             pipeline = Pipeline.from_pretrained(settings.pyannote_model, token=settings.pyannote_auth_token)
         except TypeError:
             pipeline = Pipeline.from_pretrained(settings.pyannote_model, use_auth_token=settings.pyannote_auth_token)
+        if pipeline is None:
+            raise DiarizationUnavailableError(
+                "Could not load the pyannote pipeline. Verify model access and Hugging Face token permissions."
+            )
         annotation = pipeline(str(audio_path))
         raw_turns = sorted(
             (
@@ -56,6 +60,8 @@ def diarize_audio(audio_path: Path) -> list[SpeakerTurn]:
             ),
             key=lambda item: (item[0], item[1], item[2]),
         )
+    except DiarizationUnavailableError:
+        raise
     except Exception as error:
         raise DiarizationError("The audio could not be diarized.") from error
 
