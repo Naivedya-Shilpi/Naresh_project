@@ -23,3 +23,12 @@ test-data/*
 .DS_Store
 .vscode/
 .idea/
+
+.env
+.env.local
+.env.*.local
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
